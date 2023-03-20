@@ -661,10 +661,10 @@ getprocnum(void)
 {
   struct proc *p;
   
-  int cnt = 0;
+  uint64 cnt = 0;
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
-    if(p->state == UNUSED) {
+    if(p->state != UNUSED) {
       ++cnt;
     }
     release(&p->lock);
