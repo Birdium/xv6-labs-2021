@@ -680,3 +680,20 @@ procdump(void)
     printf("\n");
   }
 }
+
+uint64
+pgaccess(void *va, int n, void *dst) {
+  struct proc *p = myproc();
+  pagetable_t pg = p->pagetable;
+  int ans = 0;
+  for (int i = 0; i < n; i++) {
+    pte_t *pte = (pte_t*) walk(pg, (uint64)va, 0);
+    if (pte && (*pte & PTE_A)) {
+      ans |= 1 << i;
+      *pte ^= PTE_A;
+    }
+    va += PGSIZE;
+
+  }
+  return copyout(pg, (uint64)dst, (char *)&ans, sizeof(int)); 
+}
