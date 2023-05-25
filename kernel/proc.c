@@ -654,3 +654,25 @@ procdump(void)
     printf("\n");
   }
 }
+
+void
+sigalarm(int ticks, uint64 handler)
+{
+  struct proc *p = myproc();
+  p->interval = ticks;
+  p->passticks = 0;
+  p->handler = (uint64)handler;
+  p->alarmframe = 0;
+}
+
+void
+sigreturn()
+{
+  struct proc *p = myproc();
+  if (p->alarmframe != 0) {
+    memmove(p->trapframe, p->alarmframe, sizeof(struct trapframe));
+    kfree(p->alarmframe);
+    p->alarmframe = 0;
+  }
+  p->passticks = 0;
+}
