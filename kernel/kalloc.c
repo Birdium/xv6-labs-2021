@@ -9,6 +9,23 @@
 #include "riscv.h"
 #include "defs.h"
 
+#define PA2PG_IDX(pa) ((((uint64)pa) - KERNBASE) / PGSIZE)
+
+int ref_cnt[(PHYSTOP - KERNBASE) / PGSIZE];
+struct spinlock ref_lock;
+
+void set_refcnt(uint64 pa, int n) {
+  acquire(&ref_lock);
+  ref_cnt[PA2PG_IDX(pa)] = n;
+  release(&ref_lock);
+}
+
+void inc_refcnt(uint64 pa) {
+  acquire(&ref_lock);
+  ref_cnt[PA2PG_IDX(pa)]++;
+  release(&ref_lock);
+}
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -27,6 +44,8 @@ void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&ref_lock, "page ref");
+  memset(ref_cnt, 0, sizeof(ref_cnt));
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -47,6 +66,11 @@ void
 kfree(void *pa)
 {
   struct run *r;
+
+  ref_cnt[PA2PG_IDX(pa)]--;
+  if (ref_cnt[PA2PG_IDX(pa)] > 0) {
+    return;
+  }
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
@@ -72,11 +96,14 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r) {
     kmem.freelist = r->next;
+    ref_cnt[PA2PG_IDX(r)] = 1;
+  }
   release(&kmem.lock);
 
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
+
   return (void*)r;
 }
