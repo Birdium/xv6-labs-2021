@@ -90,53 +90,68 @@ bget(uint dev, uint blockno)
   }
 
   // find a block in current hash table
+  struct buf *lb = 0;
+
   for(b = buckets[h].head; b != 0; b = b->next){
     if(b->refcnt == 0 && b->blockno == blockno){
-      b->dev = dev;
-      b->blockno = blockno;
-      b->valid = 0;
-      b->refcnt = 1;
-      release(&buckets[h].lock);
-      acquiresleep(&b->lock);
-      return b;
+      if (!lb || b->timestamp < lb->timestamp) {
+        lb = b;
+      }
     }
   }
+  
+  if (lb) {
+    b = lb;
+    b->dev = dev;
+    b->blockno = blockno;
+    b->valid = 0;
+    b->refcnt = 1;
+    release(&buckets[h].lock);
+    acquiresleep(&b->lock);
+    return b;
+  }
 
-  acquire(&bcache.lock);
+  // acquire(&bcache.lock);
 
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
   for (int i = (h + 1) % NBUCKET; i != h; i = (i + 1) % NBUCKET) {
     acquire(&buckets[i].lock);
+    struct buf *lb = 0;
     for(b = buckets[i].head; b != 0; b = b->next){
       if(b->refcnt == 0) {
-        
-        struct buf *prev = buckets[i].head;
-        if (prev == b) {
-          buckets[i].head = b->next;
+        if (!lb || b->timestamp < lb->timestamp) {
+          lb = b;
         }
-        else {
-          while (prev && prev->next != b) {
-            prev = prev->next;
-          }
-          prev->next = b->next;
-        }
-
-        b->next = buckets[h].head;
-        buckets[h].head = b;
-
-        release(&buckets[i].lock);
-        release(&bcache.lock);
-        b->timestamp = ticks;
-        b->dev = dev;
-        b->blockno = blockno;
-        b->valid = 0;
-        b->refcnt = 1;
-
-        release(&buckets[h].lock);
-        acquiresleep(&b->lock);
-        return b;
       }
+    }
+    if (lb) {
+      b = lb;
+      struct buf *prev = buckets[i].head;
+      if (prev == b) {
+        buckets[i].head = b->next;
+      }
+      else {
+        while (prev && prev->next != b) {
+          prev = prev->next;
+        }
+        prev->next = b->next;
+      }
+
+      b->next = buckets[h].head;
+      buckets[h].head = b;
+
+      release(&buckets[i].lock);
+      // release(&bcache.lock);
+      b->timestamp = ticks;
+      b->dev = dev;
+      b->blockno = blockno;
+      b->valid = 0;
+      b->refcnt = 1;
+
+      release(&buckets[h].lock);
+      acquiresleep(&b->lock);
+      return b;
     }
     release(&buckets[i].lock);
   }
