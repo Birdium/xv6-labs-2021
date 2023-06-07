@@ -12,6 +12,7 @@
 #include "file.h"
 #include "stat.h"
 #include "proc.h"
+#include "fcntl.h"
 
 struct devsw devsw[NDEV];
 struct {
@@ -180,3 +181,65 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+
+uint64 mmap(uint64 addr, int length, int prot, int flags, struct file *f, int offset) {
+  if (addr) 
+    panic("mmap: addr != 0");
+  if (offset)
+    panic("mmap: offset != 0");
+  if (!f->readable && (prot & PROT_READ))
+    return -1;
+  if (!f->writable && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE))
+    return -1;
+
+  struct proc* p = myproc();
+  length = PGROUNDUP(length);
+  for (int i = 0; i < VMA_NUM; i++) {
+    if (p->vma[i].valid == 0) {
+      p->vma[i] = (struct vma){
+        .valid = 1,
+        .addr = p->sz, 
+        .f = f,
+        .length = length,
+        .prot = prot,
+        .flags = flags,
+        .offset = offset
+      };
+      filedup(f);
+      p->sz += length;
+      // printf("mmap: [%p, %p), %d\n", (void*)(p->sz - length), (void*)(p->sz), prot);
+      return p->vma[i].addr;
+    }
+  }
+  return 0;
+}
+
+int munmap(uint64 addr, int length) {
+  struct proc *p = myproc();
+  struct vma *v = 0;
+  addr = PGROUNDDOWN(addr);
+  length = PGROUNDUP(length);
+  for (int i = 0; i < VMA_NUM; i++) {    
+    #define IN_RANGE(x, start, len) ((start <= x && x < start + len)) 
+    if (p->vma[i].valid && IN_RANGE(addr, p->vma[i].addr, p->vma[i].length)
+                        && IN_RANGE(addr + length, p->vma[i].addr, p->vma[i].length)) {
+      v = &p->vma[i];
+    }
+  }
+  if (!v) {
+    return 0;
+  }
+  // printf("%p [%p, %p)\n", v, (void*)v->addr, (void*)(v->addr + v->length));
+  if (v->addr == addr) {
+    v->addr += length;
+    v->length -= length;
+    if (v->flags & MAP_SHARED) 
+      filewrite(v->f, addr, length);
+    uvmunmap(p->pagetable, addr, length / PGSIZE, 1);
+    if (v->length == 0) {
+      fileclose(v->f);
+      v->valid = 0;
+    }
+  }  
+  return 0;
+}

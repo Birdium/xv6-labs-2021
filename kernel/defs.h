@@ -33,6 +33,8 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
+uint64          mmap(uint64 addr, int length, int prot, int flags, struct file *fd, int offset);
+int             munmap(uint64 addr, int length);
 
 // fs.c
 void            fsinit(int);
